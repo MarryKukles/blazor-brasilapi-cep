@@ -1,0 +1,202 @@
+﻿
+@page "/"
+@using System.Linq
+@using System.Net.Http.Json
+@using System.Text.Json
+@using BlazorWasmBrasilApiCep.Models
+@inject HttpClient Http
+
+<PageTitle>Consulta de CEP - Brasil API</PageTitle>
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h3 class="card-title mb-4 text-center">
+                        Consulta de CEP
+                    </h3>
+
+                    <div class="mb-3">
+                        <label for="cepInput" class="form-label">
+                            CEP (somente números)
+                        </label>
+
+                        <div class="input-group">
+                            <input id="cepInput"
+                                   class="form-control"
+                                   @bind="cepInput"
+                                   @bind:event="oninput"
+                                   placeholder="Ex: 89010025"
+                                   maxlength="9"
+                                   inputmode="numeric"
+                                   disabled="@isLoading" />
+
+                            <button class="btn btn-primary"
+                                    @onclick="ConsultarCep"
+                                    disabled="@isLoading">
+                                @if (isLoading)
+                                {
+                                    <span class="spinner-border spinner-border-sm"
+                                          role="status"
+                                          aria-hidden="true"></span>
+                                    <span> Buscando...</span>
+                                }
+                                else
+                                {
+                                    <span>Consultar</span>
+                                }
+                            </button>
+                        </div>
+
+                        <small class="text-muted">
+                            Digite um CEP com 8 números.
+                        </small>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(errorMessage))
+                    {
+                        <div class="alert alert-danger mt-3" role="alert">
+                            @errorMessage
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @if (cepResult != null)
+            {
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header bg-success text-white">
+                        <strong>Resultado encontrado</strong>
+                    </div>
+
+                    <div class="card-body">
+                        <p>
+                            <strong>CEP:</strong>
+                            @(cepResult.CodigoCep ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>Logradouro:</strong>
+                            @(cepResult.Street ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>Bairro:</strong>
+                            @(cepResult.Neighborhood ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>Cidade:</strong>
+                            @(cepResult.City ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>Estado:</strong>
+                            @(cepResult.State ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>IBGE (Cidade):</strong>
+                            @(cepResult.Ibge?.City ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>IBGE (Estado):</strong>
+                            @(cepResult.Ibge?.State ?? "Não informado")
+                        </p>
+
+                        <p>
+                            <strong>Serviço:</strong>
+                            @(cepResult.Service ?? "Não informado")
+                        </p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string cepInput = string.Empty;
+    private Cep? cepResult;
+    private string? errorMessage;
+    private bool isLoading;
+
+    private async Task ConsultarCep()
+    {
+        errorMessage = null;
+        cepResult = null;
+
+        // Remove caracteres que não sejam números.
+        string cepLimpo = new string(
+            (cepInput ?? string.Empty)
+                .Where(char.IsDigit)
+                .ToArray()
+        );
+
+        // Valida o CEP.
+        if (cepLimpo.Length != 8)
+        {
+            errorMessage =
+                "Digite um CEP válido contendo exatamente 8 números.";
+            return;
+        }
+
+        isLoading = true;
+
+        try
+        {
+            string url =
+                $"https://brasilapi.com.br/api/cep/v1/{cepLimpo}";
+
+            using var response = await Http.GetAsync(url);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = (int)response.StatusCode switch
+                {
+                    400 => "O CEP informado é inválido.",
+                    404 => "CEP não encontrado. Verifique o número informado.",
+                    _ => $"Erro na consulta. Código HTTP: {(int)response.StatusCode}."
+                };
+
+                return;
+            }
+
+            cepResult =
+                await response.Content.ReadFromJsonAsync<Cep>();
+
+            if (cepResult == null)
+            {
+                errorMessage =
+                    "A API não retornou dados para o CEP informado.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage =
+                "Não foi possível conectar à Brasil API. Verifique sua conexão.";
+        }
+        catch (JsonException)
+        {
+            errorMessage =
+                "Não foi possível interpretar os dados retornados pela API.";
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage =
+                "A consulta demorou demais. Tente novamente.";
+        }
+        catch (Exception)
+        {
+            errorMessage =
+                "Ocorreu um erro inesperado durante a consulta.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}
